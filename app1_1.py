@@ -49,11 +49,19 @@ def summarize_text(text, max_sentences=5):
 # -------------------------------
 # 5️⃣ Text-to-speech using gTTS + BytesIO
 # -------------------------------
-def text_to_speech(text):
-    tts = gTTS(text=text, lang='en')
+def text_to_speech_chunks(text):
+    chunk_size = 2000  # max chars per gTTS call
     audio_bytes = io.BytesIO()
-    tts.write_to_fp(audio_bytes)  # write MP3 data to memory
-    audio_bytes.seek(0)  # reset pointer
+
+    for i in range(0, len(text), chunk_size):
+        chunk = text[i:i + chunk_size]
+        tts = gTTS(text=chunk, lang='en')
+        tts_fp = io.BytesIO()
+        tts.write_to_fp(tts_fp)
+        tts_fp.seek(0)
+        audio_bytes.write(tts_fp.read())
+
+    audio_bytes.seek(0)
     return audio_bytes
 
 # -------------------------------
@@ -89,14 +97,14 @@ if uploaded_file is not None:
     with col1:
         if st.button("🔊 Read Full PDF"):
             st.info("Generating audio for full PDF...")
-            audio_bytes = text_to_speech(clean_text)
+            audio_bytes = text_to_speech_chunks(clean_text)
             st.audio(audio_bytes, format="audio/mp3")
             st.success("Done!")
 
     with col2:
         if st.button("🔊 Read Summary"):
             st.info("Generating audio for summary...")
-            audio_bytes = text_to_speech(summary)
+            audio_bytes = text_to_speech_chunks(summary)
             st.audio(audio_bytes, format="audio/mp3")
             st.success("Done!")
 
