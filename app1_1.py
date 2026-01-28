@@ -197,7 +197,7 @@ if uploaded_file:
         st.write(full_text[:1500] + "...")
 
     if st.button("🔊 Generate Full Audiobook"):
-        chunk_size = 3000
+        chunk_size = 1500
         chunks = [
             full_text[i:i + chunk_size]
             for i in range(0, len(full_text), chunk_size)
