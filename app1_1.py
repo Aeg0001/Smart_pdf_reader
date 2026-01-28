@@ -58,7 +58,7 @@ if uploaded_file is not None:
     num_sentences = st.slider(
         "Select number of sentences for the summary:",
         min_value=1,
-        max_value=20,
+        max_value=100,
         value=5
     )
 
