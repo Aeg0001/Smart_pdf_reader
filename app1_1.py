@@ -48,14 +48,25 @@ def summarize_text(text, max_sentences=5):
     return ". ".join(sentences[:max_sentences])
 
 # -------------------------------
-# Text-to-speech (saved to temp file)
+# Convert text to multiple audio files (chunking)
 # -------------------------------
-def text_to_speech_file(text):
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
-        tts = gTTS(text=text, lang='en')
-        tts.save(tmp.name)
-        tmp_path = tmp.name
-    return tmp_path
+def text_to_audio_chunks(text, chunk_size=500):
+    """
+    Splits text into chunks (chunk_size in words)
+    and generates gTTS MP3 for each chunk.
+    Returns list of temp file paths.
+    """
+    words = text.split()
+    audio_files = []
+
+    for i in range(0, len(words), chunk_size):
+        chunk = " ".join(words[i:i+chunk_size])
+        tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+        tts = gTTS(text=chunk, lang='en')
+        tts.save(tmp_file.name)
+        audio_files.append(tmp_file.name)
+
+    return audio_files
 
 # -------------------------------
 # Streamlit UI
@@ -63,6 +74,10 @@ def text_to_speech_file(text):
 st.title("📄 PDF to Speech Reader")
 
 uploaded_file = st.file_uploader("Upload a PDF file", type=["pdf"])
+
+# Keep track of temp audio files so we can avoid deleting too early
+if "audio_files" not in st.session_state:
+    st.session_state.audio_files = []
 
 if uploaded_file is not None:
     with st.spinner("Extracting text from PDF..."):
@@ -75,13 +90,13 @@ if uploaded_file is not None:
     num_sentences = st.slider(
         "Select number of sentences for the summary:",
         min_value=1,
-        max_value=20,
+        max_value=50,
         value=5
     )
 
     summary = summarize_text(clean_text, max_sentences=num_sentences)
 
-    st.subheader(f"Summary (first {num_sentences} sentences):")
+    st.subheader(f"Summary ({num_sentences} sentences):")
     st.write(summary)
 
     col1, col2 = st.columns(2)
@@ -89,15 +104,32 @@ if uploaded_file is not None:
     with col1:
         if st.button("🔊 Read Full PDF"):
             st.info("Generating audio for full PDF...")
-            audio_file = text_to_speech_file(clean_text)
-            st.audio(audio_file, format="audio/mp3")
+            audio_files = text_to_audio_chunks(clean_text, chunk_size=500)
+            st.session_state.audio_files.extend(audio_files)
+            for idx, f in enumerate(audio_files):
+                st.audio(f, format="audio/mp3")
             st.success("Done!")
-            os.remove(audio_file)  # clean up temp file
 
     with col2:
         if st.button("🔊 Read Summary"):
             st.info("Generating audio for summary...")
-            audio_file = text_to_speech_file(summary)
-            st.audio(audio_file, format="audio/mp3")
+            audio_files = text_to_audio_chunks(summary, chunk_size=100)
+            st.session_state.audio_files.extend(audio_files)
+            for idx, f in enumerate(audio_files):
+                st.audio(f, format="audio/mp3")
             st.success("Done!")
-            os.remove(audio_file)  # clean up temp file
+
+# -------------------------------
+# Optional: clean up temp files when app stops
+# -------------------------------
+def cleanup_temp_files():
+    for f in st.session_state.get("audio_files", []):
+        if os.path.exists(f):
+            os.remove(f)
+    st.session_state.audio_files = []
+
+# Uncomment this if you want to add a cleanup button
+if st.button("🗑️ Cleanup Temp Files"):
+     cleanup_temp_files()
+     st.success("Temp files deleted.")
+
