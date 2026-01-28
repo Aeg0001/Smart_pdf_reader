@@ -5,7 +5,9 @@ from gtts import gTTS
 import io
 import base64
 
+# ----------------------------------
 # PDF TEXT EXTRACTION
+# ----------------------------------
 def extract_text_from_pdf(pdf_file):
     try:
         pdf_bytes = pdf_file.getvalue()
@@ -21,8 +23,9 @@ def extract_text_from_pdf(pdf_file):
         st.error(f"Error reading PDF: {e}")
         return ""
 
-
+# ----------------------------------
 # TEXT NORMALIZATION
+# ----------------------------------
 def normalize_text(text):
     # Collapse all whitespace (PDFs are messy)
     text = re.sub(r'\s+', ' ', text)
@@ -43,7 +46,9 @@ def normalize_text(text):
 
     return text.strip()
 
+# ----------------------------------
 # LEVEL 1: REMOVE REFERENCES
+# ----------------------------------
 def remove_references(text):
     patterns = [
         r'\breferences\b',
@@ -62,7 +67,9 @@ def remove_references(text):
 
     return text
 
+# ----------------------------------
 # LEVEL 2: REMOVE IN-TEXT CITATIONS
+# ----------------------------------
 def remove_inline_citations(text):
     # APA / Harvard style citations
     text = re.sub(
@@ -80,7 +87,9 @@ def remove_inline_citations(text):
 
     return text
 
+# ----------------------------------
 # LEVEL 3: MAIN SECTIONS ONLY
+# ----------------------------------
 def extract_main_sections(text):
     headers = [
         "abstract",
@@ -107,7 +116,9 @@ def extract_main_sections(text):
 
     return text[start:end]
 
+# ----------------------------------
 # AUDIO PLAYER
+# ----------------------------------
 def generate_audio_player(text, label):
     try:
         mp3_fp = io.BytesIO()
@@ -130,13 +141,15 @@ def generate_audio_player(text, label):
     except Exception as e:
         st.error(f"Audio generation failed: {e}")
 
+# ----------------------------------
 # STREAMLIT UI
+# ----------------------------------
 st.set_page_config(page_title="Aussie PDF Audiobook", page_icon="🇦🇺")
 st.title("📄🇦🇺 PDF Audiobook Reader")
 st.markdown("### Accent: *Australian Female*")
 
 filter_level = st.radio(
-    "Smart filtering level:",
+    "🧠 Smart filtering level:",
     [
         "Level 1 – Skip references",
         "Level 2 – Skip references + citations",
