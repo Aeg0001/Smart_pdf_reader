@@ -2,13 +2,14 @@ import streamlit as st
 import fitz  # PyMuPDF
 import re
 from gtts import gTTS
-import io
+import tempfile
+import os
 
 # -------------------------------
-# 1️⃣ PDF Extraction
+# PDF Extraction
 # -------------------------------
 def extract_text_from_pdf(pdf_file):
-    pdf_bytes = pdf_file.read()  # read uploaded file into memory
+    pdf_bytes = pdf_file.read()
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     full_text = ""
     for page in doc:
@@ -16,10 +17,10 @@ def extract_text_from_pdf(pdf_file):
     return full_text
 
 # -------------------------------
-# 2️⃣ Text normalization
+# Text normalization
 # -------------------------------
 def normalize_text(text):
-    text = re.sub(r'\s+', ' ', text)  # remove extra spaces/newlines
+    text = re.sub(r'\s+', ' ', text)
     replacements = {
         "HEC-RAS": "H E C R A S",
         "SWMM": "S W M M",
@@ -34,38 +35,30 @@ def normalize_text(text):
     return text
 
 # -------------------------------
-# 3️⃣ Sentence splitting
+# Sentence splitting
 # -------------------------------
 def split_into_sentences(text):
     return [s.strip() for s in text.split('. ') if s]
 
 # -------------------------------
-# 4️⃣ Summarization
+# Summarization
 # -------------------------------
 def summarize_text(text, max_sentences=5):
     sentences = split_into_sentences(text)
     return ". ".join(sentences[:max_sentences])
 
 # -------------------------------
-# 5️⃣ Text-to-speech using gTTS + BytesIO
+# Text-to-speech (saved to temp file)
 # -------------------------------
-def text_to_speech_chunks(text):
-    chunk_size = 2000  # max chars per gTTS call
-    audio_bytes = io.BytesIO()
-
-    for i in range(0, len(text), chunk_size):
-        chunk = text[i:i + chunk_size]
-        tts = gTTS(text=chunk, lang='en')
-        tts_fp = io.BytesIO()
-        tts.write_to_fp(tts_fp)
-        tts_fp.seek(0)
-        audio_bytes.write(tts_fp.read())
-
-    audio_bytes.seek(0)
-    return audio_bytes
+def text_to_speech_file(text):
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as tmp:
+        tts = gTTS(text=text, lang='en')
+        tts.save(tmp.name)
+        tmp_path = tmp.name
+    return tmp_path
 
 # -------------------------------
-# 6️⃣ Streamlit UI
+# Streamlit UI
 # -------------------------------
 st.title("📄 PDF to Speech Reader")
 
@@ -86,25 +79,25 @@ if uploaded_file is not None:
         value=5
     )
 
-    # Show summary
-    st.subheader(f"Summary (first {num_sentences} sentences):")
     summary = summarize_text(clean_text, max_sentences=num_sentences)
+
+    st.subheader(f"Summary (first {num_sentences} sentences):")
     st.write(summary)
 
-    # Buttons to read full text or summary
     col1, col2 = st.columns(2)
 
     with col1:
         if st.button("🔊 Read Full PDF"):
             st.info("Generating audio for full PDF...")
-            audio_bytes = text_to_speech_chunks(clean_text)
-            st.audio(audio_bytes, format="audio/mp3")
+            audio_file = text_to_speech_file(clean_text)
+            st.audio(audio_file, format="audio/mp3")
             st.success("Done!")
+            os.remove(audio_file)  # clean up temp file
 
     with col2:
         if st.button("🔊 Read Summary"):
             st.info("Generating audio for summary...")
-            audio_bytes = text_to_speech_chunks(summary)
-            st.audio(audio_bytes, format="audio/mp3")
+            audio_file = text_to_speech_file(summary)
+            st.audio(audio_file, format="audio/mp3")
             st.success("Done!")
-
+            os.remove(audio_file)  # clean up temp file
