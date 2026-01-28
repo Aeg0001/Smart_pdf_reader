@@ -38,9 +38,16 @@ def summarize_text(text, max_sentences=5):
 
 def text_to_speech(text):
     tts = gTTS(text=text, lang='en')
+    # create a temporary file
     tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
     tts.save(tmp_file.name)
-    return tmp_file.name
+    tmp_file.close()  # close the file so Streamlit can read it
+    # read into memory
+    with open(tmp_file.name, "rb") as f:
+        audio_bytes = f.read()
+    os.remove(tmp_file.name)  # safely delete after reading
+    return audio_bytes
+
 
 # -------------------------------
 st.title("PDF to Speech Reader")
