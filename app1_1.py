@@ -2,8 +2,8 @@ import streamlit as st
 import fitz  # PyMuPDF
 import re
 from gtts import gTTS
-import tempfile
 import io
+import base64
 
 # -------------------------------
 # PDF Extraction
@@ -35,40 +35,34 @@ def normalize_text(text):
     return text
 
 # -------------------------------
-# Sentence splitting
-# -------------------------------
-def split_into_sentences(text):
-    return [s.strip() for s in text.split('. ') if s]
-
-# -------------------------------
 # Summarization
 # -------------------------------
 def summarize_text(text, max_sentences=5):
-    sentences = split_into_sentences(text)
-    return ". ".join(sentences[:max_sentences])
+    # Improved splitting for better summary
+    sentences = re.split(r'(?<=[.!?]) +', text)
+    return " ".join(sentences[:max_sentences])
 
 # -------------------------------
-# Convert text to audio (Bytes approach)
+# Audio Helper (The Fix)
 # -------------------------------
-def text_to_audio_chunks(text, chunk_size=500):
-    """
-    Splits text into chunks and generates gTTS audio bytes.
-    Returns a list of bytes-objects (MP3 data).
-    """
-    words = text.split()
-    audio_chunks = []
-
-    for i in range(0, len(words), chunk_size):
-        chunk = " ".join(words[i:i+chunk_size])
-        
-        # We use a BytesIO buffer to store the audio in memory
+def play_audio(text):
+    """Converts text to speech and plays it using Base64 to avoid path errors."""
+    try:
         mp3_fp = io.BytesIO()
-        tts = gTTS(text=chunk, lang='en')
+        tts = gTTS(text=text, lang='en')
         tts.write_to_fp(mp3_fp)
         mp3_fp.seek(0)
-        audio_chunks.append(mp3_fp.read())
-
-    return audio_chunks
+        
+        # Convert to Base64
+        b64 = base64.b64encode(mp3_fp.read()).decode()
+        md = f"""
+            <audio controls autoplay="true">
+            <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
+            </audio>
+            """
+        st.markdown(md, unsafe_allow_html=True)
+    except Exception as e:
+        st.error(f"Audio Error: {e}")
 
 # -------------------------------
 # Streamlit UI
@@ -80,42 +74,28 @@ uploaded_file = st.file_uploader("Upload a PDF file", type=["pdf"])
 
 if uploaded_file is not None:
     # 1. Extraction
-    with st.spinner("Extracting text from PDF..."):
-        raw_text = extract_text_from_pdf(uploaded_file)
-    st.success("Text extracted!")
+    if "raw_text" not in st.session_state:
+        with st.spinner("Extracting text..."):
+            st.session_state.raw_text = extract_text_from_pdf(uploaded_file)
+    
+    clean_text = normalize_text(st.session_state.raw_text)
 
-    clean_text = normalize_text(raw_text)
-
-    # 2. Summarization Settings
-    num_sentences = st.slider(
-        "Select number of sentences for the summary:",
-        min_value=1,
-        max_value=50,
-        value=5
-    )
-
+    # 2. Summary Slider
+    num_sentences = st.slider("Summary length (sentences):", 1, 50, 5)
     summary = summarize_text(clean_text, max_sentences=num_sentences)
 
-    st.subheader(f"Summary ({num_sentences} sentences):")
+    st.subheader("Summary Content:")
     st.info(summary)
 
-    # 3. Audio Controls
+    # 3. Audio Buttons
     col1, col2 = st.columns(2)
 
     with col1:
         if st.button("🔊 Read Full PDF"):
-            with st.spinner("Generating audio for full PDF..."):
-                # Larger chunk size for full text
-                audio_data_list = text_to_audio_chunks(clean_text, chunk_size=400)
-                for audio_bytes in audio_data_list:
-                    st.audio(audio_bytes, format="audio/mp3")
-            st.success("Full audio ready!")
+            # Note: gTTS has a limit on text length per request. 
+            # For very long PDFs, we read the first 3000 chars or chunk it.
+            play_audio(clean_text[:3000]) 
 
     with col2:
         if st.button("🔊 Read Summary"):
-            with st.spinner("Generating audio for summary..."):
-                # Smaller chunk size for summary
-                audio_data_list = text_to_audio_chunks(summary, chunk_size=100)
-                for audio_bytes in audio_data_list:
-                    st.audio(audio_bytes, format="audio/mp3")
-            st.success("Summary audio ready!")
+            play_audio(summary)
