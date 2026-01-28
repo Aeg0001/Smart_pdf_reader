@@ -2,8 +2,7 @@ import streamlit as st
 import fitz  # PyMuPDF
 import re
 from gtts import gTTS
-import tempfile
-import os
+import io
 
 # -------------------------------
 # 1️⃣ PDF Extraction
@@ -48,18 +47,13 @@ def summarize_text(text, max_sentences=5):
     return ". ".join(sentences[:max_sentences])
 
 # -------------------------------
-# 5️⃣ Text-to-speech using gTTS
+# 5️⃣ Text-to-speech using gTTS + BytesIO
 # -------------------------------
 def text_to_speech(text):
-    tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
-    tmp_file.close()  # close before writing
     tts = gTTS(text=text, lang='en')
-    tts.save(tmp_file.name)
-
-    # read audio into memory
-    with open(tmp_file.name, "rb") as f:
-        audio_bytes = f.read()
-    os.remove(tmp_file.name)  # delete temp file
+    audio_bytes = io.BytesIO()
+    tts.write_to_fp(audio_bytes)  # write MP3 data to memory
+    audio_bytes.seek(0)  # reset pointer
     return audio_bytes
 
 # -------------------------------
@@ -94,7 +88,7 @@ if uploaded_file is not None:
 
     with col1:
         if st.button("🔊 Read Full PDF"):
-            st.info("Generating audio...")
+            st.info("Generating audio for full PDF...")
             audio_bytes = text_to_speech(clean_text)
             st.audio(audio_bytes, format="audio/mp3")
             st.success("Done!")
@@ -105,3 +99,4 @@ if uploaded_file is not None:
             audio_bytes = text_to_speech(summary)
             st.audio(audio_bytes, format="audio/mp3")
             st.success("Done!")
+
