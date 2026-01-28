@@ -3,7 +3,7 @@ import fitz  # PyMuPDF
 import re
 from gtts import gTTS
 import tempfile
-import os
+import io
 
 # -------------------------------
 # PDF Extraction
@@ -48,45 +48,45 @@ def summarize_text(text, max_sentences=5):
     return ". ".join(sentences[:max_sentences])
 
 # -------------------------------
-# Convert text to multiple audio files (chunking)
+# Convert text to audio (Bytes approach)
 # -------------------------------
 def text_to_audio_chunks(text, chunk_size=500):
     """
-    Splits text into chunks (chunk_size in words)
-    and generates gTTS MP3 for each chunk.
-    Returns list of temp file paths.
+    Splits text into chunks and generates gTTS audio bytes.
+    Returns a list of bytes-objects (MP3 data).
     """
     words = text.split()
-    audio_files = []
+    audio_chunks = []
 
     for i in range(0, len(words), chunk_size):
         chunk = " ".join(words[i:i+chunk_size])
-        tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+        
+        # We use a BytesIO buffer to store the audio in memory
+        mp3_fp = io.BytesIO()
         tts = gTTS(text=chunk, lang='en')
-        tts.save(tmp_file.name)
-        audio_files.append(tmp_file.name)
+        tts.write_to_fp(mp3_fp)
+        mp3_fp.seek(0)
+        audio_chunks.append(mp3_fp.read())
 
-    return audio_files
+    return audio_chunks
 
 # -------------------------------
 # Streamlit UI
 # -------------------------------
+st.set_page_config(page_title="PDF Audio Reader", page_icon="🔊")
 st.title("📄 PDF to Speech Reader")
 
 uploaded_file = st.file_uploader("Upload a PDF file", type=["pdf"])
 
-# Keep track of temp audio files so we can avoid deleting too early
-if "audio_files" not in st.session_state:
-    st.session_state.audio_files = []
-
 if uploaded_file is not None:
+    # 1. Extraction
     with st.spinner("Extracting text from PDF..."):
         raw_text = extract_text_from_pdf(uploaded_file)
     st.success("Text extracted!")
 
     clean_text = normalize_text(raw_text)
 
-    # Slider to adjust summary length
+    # 2. Summarization Settings
     num_sentences = st.slider(
         "Select number of sentences for the summary:",
         min_value=1,
@@ -97,39 +97,25 @@ if uploaded_file is not None:
     summary = summarize_text(clean_text, max_sentences=num_sentences)
 
     st.subheader(f"Summary ({num_sentences} sentences):")
-    st.write(summary)
+    st.info(summary)
 
+    # 3. Audio Controls
     col1, col2 = st.columns(2)
 
     with col1:
         if st.button("🔊 Read Full PDF"):
-            st.info("Generating audio for full PDF...")
-            audio_files = text_to_audio_chunks(clean_text, chunk_size=500)
-            st.session_state.audio_files.extend(audio_files)
-            for idx, f in enumerate(audio_files):
-                st.audio(f, format="audio/mp3")
-            st.success("Done!")
+            with st.spinner("Generating audio for full PDF..."):
+                # Larger chunk size for full text
+                audio_data_list = text_to_audio_chunks(clean_text, chunk_size=400)
+                for audio_bytes in audio_data_list:
+                    st.audio(audio_bytes, format="audio/mp3")
+            st.success("Full audio ready!")
 
     with col2:
         if st.button("🔊 Read Summary"):
-            st.info("Generating audio for summary...")
-            audio_files = text_to_audio_chunks(summary, chunk_size=100)
-            st.session_state.audio_files.extend(audio_files)
-            for idx, f in enumerate(audio_files):
-                st.audio(f, format="audio/mp3")
-            st.success("Done!")
-
-# -------------------------------
-# Optional: clean up temp files when app stops
-# -------------------------------
-def cleanup_temp_files():
-    for f in st.session_state.get("audio_files", []):
-        if os.path.exists(f):
-            os.remove(f)
-    st.session_state.audio_files = []
-
-# Uncomment this if you want to add a cleanup button
-if st.button("🗑️ Cleanup Temp Files"):
-     cleanup_temp_files()
-     st.success("Temp files deleted.")
-
+            with st.spinner("Generating audio for summary..."):
+                # Smaller chunk size for summary
+                audio_data_list = text_to_audio_chunks(summary, chunk_size=100)
+                for audio_bytes in audio_data_list:
+                    st.audio(audio_bytes, format="audio/mp3")
+            st.success("Summary audio ready!")
