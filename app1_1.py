@@ -96,4 +96,3 @@ if uploaded_file:
             for idx, chunk in enumerate(chunks):
                 generate_audio_player(chunk, f"Part {idx + 1}")
             
-            st.balloons()
