@@ -4,6 +4,7 @@ import re
 from gtts import gTTS
 import io
 import base64
+import time
 
 # ----------------------------------
 # PDF TEXT EXTRACTION
@@ -13,7 +14,6 @@ def extract_text_from_pdf(pdf_file):
         pdf_bytes = pdf_file.getvalue()
         if not pdf_bytes:
             return ""
-
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         text = ""
         for page in doc:
@@ -27,183 +27,77 @@ def extract_text_from_pdf(pdf_file):
 # TEXT NORMALIZATION
 # ----------------------------------
 def normalize_text(text):
-    # Collapse all whitespace (PDFs are messy)
     text = re.sub(r'\s+', ' ', text)
-
     replacements = {
-        "HEC-RAS": "H E C R A S",
-        "SWMM": "S W M M",
-        "β": "beta",
-        "α": "alpha",
-        "μ": "mu",
-        "°C": "degrees Celsius",
-        "m³/s": "cubic meters per second",
-        "km²": "square kilometers"
+        "HEC-RAS": "H E C R A S", "SWMM": "S W M M",
+        "β": "beta", "α": "alpha", "μ": "mu",
+        "°C": "degrees Celsius", "m³/s": "cubic meters per second"
     }
-
     for k, v in replacements.items():
         text = text.replace(k, v)
-
     return text.strip()
 
 # ----------------------------------
-# LEVEL 1: REMOVE REFERENCES
+# CACHED AUDIO GENERATION
 # ----------------------------------
-def remove_references(text):
-    patterns = [
-        r'\breferences\b',
-        r'\bbibliography\b',
-        r'\bworks cited\b',
-        r'\breference list\b',
-        r'\bliterature cited\b',
-        r'\breferences and notes\b'
-    ]
-
-    lower = text.lower()
-    for pattern in patterns:
-        match = re.search(pattern, lower)
-        if match:
-            return text[:match.start()]
-
-    return text
-
-# ----------------------------------
-# LEVEL 2: REMOVE IN-TEXT CITATIONS
-# ----------------------------------
-def remove_inline_citations(text):
-    # APA / Harvard style citations
-    text = re.sub(
-        r'\([^()]*\b\d{4}\b[^()]*\)',
-        '',
-        text
-    )
-
-    # IEEE style citations
-    text = re.sub(
-        r'\[\s*\d+(\s*[-–]\s*\d+)?\s*\]',
-        '',
-        text
-    )
-
-    return text
-
-# ----------------------------------
-# LEVEL 3: MAIN SECTIONS ONLY
-# ----------------------------------
-def extract_main_sections(text):
-    headers = [
-        "abstract",
-        "introduction",
-        "method",
-        "methodology",
-        "materials and methods",
-        "results",
-        "discussion",
-        "conclusion",
-        "conclusions"
-    ]
-
-    text_lower = text.lower()
-    indices = [text_lower.find(h) for h in headers if text_lower.find(h) != -1]
-
-    if not indices:
-        return text
-
-    start = min(indices)
-
-    end_match = re.search(r'\breferences\b', text_lower)
-    end = end_match.start() if end_match else len(text)
-
-    return text[start:end]
-
-# ----------------------------------
-# AUDIO PLAYER
-# ----------------------------------
-def generate_audio_player(text, label):
+@st.cache_data(show_spinner=False)
+def get_tts_b64(text_chunk):
+    """
+    This caches the result so if the app re-runs, 
+    we don't ask Google for the same audio twice!
+    """
     try:
+        # Artificial delay to be polite to Google's servers
+        time.sleep(1.5) 
         mp3_fp = io.BytesIO()
-        tts = gTTS(text=text, lang="en", tld="com.au")
+        tts = gTTS(text=text_chunk, lang="en", tld="com.au")
         tts.write_to_fp(mp3_fp)
-
-        b64 = base64.b64encode(mp3_fp.getvalue()).decode()
-
-        html = f"""
-        <div style="margin-bottom:20px; padding:15px; background:#262730;
-                    border-radius:10px; border-left:5px solid #FF4B4B;">
-            <p style="color:white; font-weight:bold;">{label}</p>
-            <audio controls style="width:100%;">
-                <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
-            </audio>
-        </div>
-        """
-        st.markdown(html, unsafe_allow_html=True)
-
+        return base64.b64encode(mp3_fp.getvalue()).decode()
     except Exception as e:
-        st.error(f"Audio generation failed: {e}")
+        return f"ERROR: {e}"
 
 # ----------------------------------
 # STREAMLIT UI
 # ----------------------------------
-st.set_page_config(page_title="Aussie PDF Audiobook", page_icon="🇦🇺")
+st.set_page_config(page_title="Aussie PDF Reader", page_icon="🇦🇺")
 st.title("📄🇦🇺 PDF Audiobook Reader")
-st.markdown("### Accent: *Australian Female*")
 
-filter_level = st.radio(
-    "🧠 Smart filtering level:",
-    [
-        "Level 1 – Skip references",
-        "Level 2 – Skip references + citations",
-        "Level 3 – Main sections only"
-    ]
-)
-
-uploaded_file = st.file_uploader(
-    "Upload a scientific or technical PDF",
-    type=["pdf"]
-)
-
-# Track filter changes
-if "last_filter_level" not in st.session_state:
-    st.session_state.last_filter_level = None
+uploaded_file = st.file_uploader("Upload your PDF", type=["pdf"])
 
 if uploaded_file:
-    if (
-        "processed_text" not in st.session_state
-        or st.session_state.last_filter_level != filter_level
-    ):
-        with st.spinner("Extracting and processing text..."):
-            text = extract_text_from_pdf(uploaded_file)
-            text = normalize_text(text)
-
-            if filter_level == "Level 1 – Skip references":
-                text = remove_references(text)
-
-            elif filter_level == "Level 2 – Skip references + citations":
-                text = remove_inline_citations(text)
-                text = remove_references(text)
-
-            elif filter_level == "Level 3 – Main sections only":
-                text = extract_main_sections(text)
-                text = remove_inline_citations(text)
-
-            st.session_state.processed_text = text
-            st.session_state.last_filter_level = filter_level
+    if "processed_text" not in st.session_state:
+        with st.spinner("Extracting text..."):
+            raw_text = extract_text_from_pdf(uploaded_file)
+            st.session_state.processed_text = normalize_text(raw_text)
 
     full_text = st.session_state.processed_text
+    
+    if full_text:
+        st.success(f"Loaded {len(full_text)} characters.")
+        
+        # Split into 2500-char chunks
+        chunk_size = 2500
+        chunks = [full_text[i:i+chunk_size] for i in range(0, len(full_text), chunk_size)]
+        
+        st.write(f"### 🎧 Audiobook Parts ({len(chunks)})")
+        st.info("Click 'Generate' on a part to listen. Generating one-by-one prevents Google from blocking you.")
 
-    st.success(f"Loaded {len(full_text)} characters")
-
-    with st.expander("🔍 Preview cleaned text"):
-        st.write(full_text[:1500] + "...")
-
-    if st.button("🔊 Generate Full Audiobook"):
-        chunk_size = 3000
-        chunks = [
-            full_text[i:i + chunk_size]
-            for i in range(0, len(full_text), chunk_size)
-        ]
-
-        st.info(f"Generating {len(chunks)} audio segments")
-
-        for i, chunk in enumerate(chunks):
-            generate_audio_player(chunk, f"Part {i + 1}")
+        for idx, chunk in enumerate(chunks):
+            with st.container():
+                col1, col2 = st.columns([1, 4])
+                col1.write(f"**Part {idx+1}**")
+                
+                # We use a unique key for every button
+                if col2.button(f"Generate & Play Part {idx+1}", key=f"btn_{idx}"):
+                    with st.spinner("Talking to Google..."):
+                        b64_result = get_tts_b64(chunk)
+                        
+                        if b64_result.startswith("ERROR"):
+                            st.error("Google is temporarily busy. Wait 10 seconds and try again.")
+                        else:
+                            md = f"""
+                                <audio controls autoplay style="width: 100%;">
+                                    <source src="data:audio/mp3;base64,{b64_result}" type="audio/mp3">
+                                </audio>
+                                """
+                            st.markdown(md, unsafe_allow_html=True)
