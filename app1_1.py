@@ -5,9 +5,7 @@ from gtts import gTTS
 import io
 import base64
 
-# ----------------------------------
 # PDF TEXT EXTRACTION
-# ----------------------------------
 def extract_text_from_pdf(pdf_file):
     try:
         pdf_bytes = pdf_file.getvalue()
