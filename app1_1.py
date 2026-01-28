@@ -5,21 +5,17 @@ import tempfile
 import os
 import re
 
-# Extract text from PDF
-
+# -------------------------------
 def extract_text_from_pdf(pdf_file):
-    doc = fitz.open(pdf_file)
+    pdf_bytes = pdf_file.read()  # read the uploaded file into memory
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     full_text = ""
     for page in doc:
         full_text += page.get_text()
     return full_text
 
-
-# Normalize text
-
 def normalize_text(text):
-    text = re.sub(r'\s+', ' ', text)  # remove extra spaces/newlines
-    # Replace scientific terms / symbols
+    text = re.sub(r'\s+', ' ', text)
     replacements = {
         "HEC-RAS": "H E C R A S",
         "SWMM": "S W M M",
@@ -33,22 +29,12 @@ def normalize_text(text):
         text = text.replace(k, v)
     return text
 
-
-# Split into sentences (simple)
-
 def split_into_sentences(text):
-    sentences = [s.strip() for s in text.split('. ') if s]
-    return sentences
-
-
-# Summarize text
+    return [s.strip() for s in text.split('. ') if s]
 
 def summarize_text(text, max_sentences=5):
     sentences = split_into_sentences(text)
     return ". ".join(sentences[:max_sentences])
-
-
-# Convert text to speech using gTTS
 
 def text_to_speech(text):
     tts = gTTS(text=text, lang='en')
@@ -56,9 +42,7 @@ def text_to_speech(text):
     tts.save(tmp_file.name)
     return tmp_file.name
 
-
-# Streamlit App
-
+# -------------------------------
 st.title("PDF to Speech Reader")
 
 uploaded_file = st.file_uploader("Upload a PDF file", type=["pdf"])
@@ -70,8 +54,6 @@ if uploaded_file is not None:
     st.success("Text extracted!")
 
     clean_text = normalize_text(raw_text)
-
-    # User chooses summary length
 
     num_sentences = st.slider(
         "Select number of sentences for the summary:",
