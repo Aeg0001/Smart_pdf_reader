@@ -35,17 +35,9 @@ def normalize_text(text):
     return text
 
 # -------------------------------
-# Summarization
+# Audio Helper (The Base64 Fix)
 # -------------------------------
-def summarize_text(text, max_sentences=5):
-    # Improved splitting for better summary
-    sentences = re.split(r'(?<=[.!?]) +', text)
-    return " ".join(sentences[:max_sentences])
-
-# -------------------------------
-# Audio Helper (The Fix)
-# -------------------------------
-def play_audio(text):
+def play_audio(text, label):
     """Converts text to speech and plays it using Base64 to avoid path errors."""
     try:
         mp3_fp = io.BytesIO()
@@ -53,49 +45,50 @@ def play_audio(text):
         tts.write_to_fp(mp3_fp)
         mp3_fp.seek(0)
         
-        # Convert to Base64
         b64 = base64.b64encode(mp3_fp.read()).decode()
         md = f"""
-            <audio controls autoplay="true">
+            <p style='margin-bottom: 5px;'>{label}</p>
+            <audio controls>
             <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
             </audio>
             """
         st.markdown(md, unsafe_allow_html=True)
     except Exception as e:
-        st.error(f"Audio Error: {e}")
+        st.error(f"Error generating audio: {e}")
 
 # -------------------------------
 # Streamlit UI
 # -------------------------------
-st.set_page_config(page_title="PDF Audio Reader", page_icon="🔊")
-st.title("📄 PDF to Speech Reader")
+st.set_page_config(page_title="PDF Full Reader", page_icon="📖")
+st.title("📖 PDF Full Text Reader")
+st.write("Upload a PDF to convert the entire document into audio segments.")
 
-uploaded_file = st.file_uploader("Upload a PDF file", type=["pdf"])
+uploaded_file = st.file_uploader("Upload your PDF", type=["pdf"])
 
 if uploaded_file is not None:
-    # 1. Extraction
-    if "raw_text" not in st.session_state:
-        with st.spinner("Extracting text..."):
-            st.session_state.raw_text = extract_text_from_pdf(uploaded_file)
+    # 1. Extraction (Cached in session state)
+    if "full_text" not in st.session_state:
+        with st.spinner("Reading document..."):
+            raw_text = extract_text_from_pdf(uploaded_file)
+            st.session_state.full_text = normalize_text(raw_text)
     
-    clean_text = normalize_text(st.session_state.raw_text)
+    full_text = st.session_state.full_text
+    
+    st.success(f"Successfully loaded document ({len(full_text)} characters)")
 
-    # 2. Summary Slider
-    num_sentences = st.slider("Summary length (sentences):", 1, 50, 5)
-    summary = summarize_text(clean_text, max_sentences=num_sentences)
-
-    st.subheader("Summary Content:")
-    st.info(summary)
-
-    # 3. Audio Buttons
-    col1, col2 = st.columns(2)
-
-    with col1:
-        if st.button("🔊 Read Full PDF"):
-            # Note: gTTS has a limit on text length per request. 
-            # For very long PDFs, we read the first 3000 chars or chunk it.
-            play_audio(clean_text[:3000]) 
-
-    with col2:
-        if st.button("🔊 Read Summary"):
-            play_audio(summary)
+    # 2. Reading Options
+    if st.button("🔊 Generate Audio for Entire PDF"):
+        # We chunk by character count (approx 2500 chars is safe for gTTS)
+        chunk_size = 2500 
+        chunks = [full_text[i:i+chunk_size] for i in range(0, len(full_text), chunk_size)]
+        
+        st.write(f"Created {len(chunks)} audio segments. Please play them in order:")
+        
+        with st.spinner("Processing audio chunks..."):
+            for idx, chunk in enumerate(chunks):
+                # We add a small label so the user knows which part they are on
+                play_audio(chunk, label=f"Part {idx + 1}")
+                
+    # 3. Text Preview (Optional)
+    with st.expander("Show Document Text"):
+        st.write(full_text)
