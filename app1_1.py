@@ -3,13 +3,16 @@ import fitz  # PyMuPDF
 import re
 from gtts import gTTS
 import io
-import base64
 
 # -------------------------------
 # PDF Extraction
 # -------------------------------
 def extract_text_from_pdf(pdf_file):
-    pdf_bytes = pdf_file.read()
+    # Use .getvalue() to ensure we get the data even on reruns
+    pdf_bytes = pdf_file.getvalue()
+    if not pdf_bytes:
+        return ""
+    
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
     full_text = ""
     for page in doc:
@@ -21,6 +24,7 @@ def extract_text_from_pdf(pdf_file):
 # -------------------------------
 def normalize_text(text):
     text = re.sub(r'\s+', ' ', text)
+    # Simple cleanup of common PDF artifacts
     replacements = {
         "HEC-RAS": "H E C R A S",
         "SWMM": "S W M M",
@@ -32,63 +36,53 @@ def normalize_text(text):
     }
     for k, v in replacements.items():
         text = text.replace(k, v)
-    return text
-
-# -------------------------------
-# Audio Helper (The Base64 Fix)
-# -------------------------------
-def play_audio(text, label):
-    """Converts text to speech and plays it using Base64 to avoid path errors."""
-    try:
-        mp3_fp = io.BytesIO()
-        tts = gTTS(text=text, lang='en')
-        tts.write_to_fp(mp3_fp)
-        mp3_fp.seek(0)
-        
-        b64 = base64.b64encode(mp3_fp.read()).decode()
-        md = f"""
-            <p style='margin-bottom: 5px;'>{label}</p>
-            <audio controls>
-            <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
-            </audio>
-            """
-        st.markdown(md, unsafe_allow_html=True)
-    except Exception as e:
-        st.error(f"Error generating audio: {e}")
+    return text.strip()
 
 # -------------------------------
 # Streamlit UI
 # -------------------------------
-st.set_page_config(page_title="PDF Full Reader", page_icon="📖")
+st.set_page_config(page_title="PDF Audio Reader", page_icon="📖")
 st.title("📖 PDF Full Text Reader")
-st.write("Upload a PDF to convert the entire document into audio segments.")
 
 uploaded_file = st.file_uploader("Upload your PDF", type=["pdf"])
 
 if uploaded_file is not None:
-    # 1. Extraction (Cached in session state)
-    if "full_text" not in st.session_state:
-        with st.spinner("Reading document..."):
-            raw_text = extract_text_from_pdf(uploaded_file)
-            st.session_state.full_text = normalize_text(raw_text)
-    
-    full_text = st.session_state.full_text
-    
-    st.success(f"Successfully loaded document ({len(full_text)} characters)")
+    # Extract text every time the file changes
+    with st.spinner("Extracting text from PDF..."):
+        raw_text = extract_text_from_pdf(uploaded_file)
+        clean_text = normalize_text(raw_text)
 
-    # 2. Reading Options
-    if st.button("🔊 Generate Audio for Entire PDF"):
-        # We chunk by character count (approx 2500 chars is safe for gTTS)
-        chunk_size = 2500 
-        chunks = [full_text[i:i+chunk_size] for i in range(0, len(full_text), chunk_size)]
+    if not clean_text:
+        st.error("No text could be extracted. The PDF might be a scanned image (OCR required) or encrypted.")
+    else:
+        st.success(f"Successfully loaded document ({len(clean_text)} characters)")
+
+        # 1. Preview the text to make sure it's actually there
+        with st.expander("👀 Preview Extracted Text"):
+            st.write(clean_text[:2000] + "..." if len(clean_text) > 2000 else clean_text)
+
+        # 2. Reading logic
+        st.subheader("🔊 Listen to Document")
         
-        st.write(f"Created {len(chunks)} audio segments. Please play them in order:")
+        # We split the text into chunks because gTTS and browsers 
+        # struggle with massive single audio files.
+        chunk_size = 2000 
+        chunks = [clean_text[i:i+chunk_size] for i in range(0, len(clean_text), chunk_size)]
         
-        with st.spinner("Processing audio chunks..."):
-            for idx, chunk in enumerate(chunks):
-                # We add a small label so the user knows which part they are on
-                play_audio(chunk, label=f"Part {idx + 1}")
+        st.info(f"The document has been split into {len(chunks)} parts for smooth playback.")
+
+        # Create a player for each chunk
+        for idx, chunk in enumerate(chunks):
+            with st.container():
+                col1, col2 = st.columns([1, 4])
+                col1.write(f"**Part {idx + 1}**")
                 
-    # 3. Text Preview (Optional)
-    with st.expander("Show Document Text"):
-        st.write(full_text)
+                # Button to generate audio for this specific part
+                # (This prevents the app from crashing by trying to load everything at once)
+                if col2.button(f"Generate Audio for Part {idx + 1}", key=f"btn_{idx}"):
+                    with st.spinner(f"Preparing Part {idx + 1}..."):
+                        mp3_fp = io.BytesIO()
+                        tts = gTTS(text=chunk, lang='en')
+                        tts.write_to_fp(mp3_fp)
+                        # Passing bytes directly to st.audio is the most stable method
+                        st.audio(mp3_fp.getvalue(), format="audio/mp3")
