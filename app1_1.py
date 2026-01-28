@@ -5,20 +5,24 @@ from gtts import gTTS
 import io
 import base64
 
-# -------------------------------
-# PDF Extraction
-# -------------------------------
+# ----------------------------------
+# PDF TEXT EXTRACTION
+# ----------------------------------
 def extract_text_from_pdf(pdf_file):
-    pdf_bytes = pdf_file.read()
+    # FIX: Use getvalue() to avoid the "0 characters" pointer issue
+    pdf_bytes = pdf_file.getvalue()
+    if not pdf_bytes:
+        return ""
+    
     doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    full_text = ""
+    text = ""
     for page in doc:
-        full_text += page.get_text()
-    return full_text
+        text += page.get_text()
+    return text
 
-# -------------------------------
-# Text normalization
-# -------------------------------
+# ----------------------------------
+# TEXT NORMALIZATION
+# ----------------------------------
 def normalize_text(text):
     text = re.sub(r'\s+', ' ', text)
     replacements = {
@@ -28,56 +32,68 @@ def normalize_text(text):
         "α": "alpha",
         "μ": "mu",
         "°C": "degrees Celsius",
-        "m³/s": "cubic meters per second"
+        "m³/s": "cubic meters per second",
+        "km²": "square kilometers"
     }
     for k, v in replacements.items():
         text = text.replace(k, v)
-    return text
+    return text.strip()
 
-# -------------------------------
-# Audio Helper (with chunking)
-# -------------------------------
-def play_audio_full(text, chunk_size=3000):
-    """Converts full text to audio safely by splitting into chunks."""
+# ----------------------------------
+# STABLE AUDIO GENERATION
+# ----------------------------------
+def generate_audio_player(text, label):
+    """Generates a reliable audio player for a chunk of text."""
     try:
-        for i in range(0, len(text), chunk_size):
-            chunk = text[i:i+chunk_size]
-            mp3_fp = io.BytesIO()
-            tts = gTTS(text=chunk, lang='en')
-            tts.write_to_fp(mp3_fp)
-            mp3_fp.seek(0)
-            
-            # Base64 to play in Streamlit
-            b64 = base64.b64encode(mp3_fp.read()).decode()
-            st.markdown(f"""
-                <audio controls autoplay="true">
-                <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
+        mp3_fp = io.BytesIO()
+        tts = gTTS(text=text, lang="en")
+        tts.write_to_fp(mp3_fp)
+        
+        # Convert to Base64 for the HTML player
+        b64 = base64.b64encode(mp3_fp.getvalue()).decode()
+        md = f"""
+            <div style="margin-bottom: 20px; padding: 10px; border: 1px solid #444; border-radius: 5px;">
+                <p style="margin: 0 0 5px 0; font-weight: bold;">{label}</p>
+                <audio controls style="width: 100%;">
+                    <source src="data:audio/mp3;base64,{b64}" type="audio/mp3">
                 </audio>
-            """, unsafe_allow_html=True)
+            </div>
+            """
+        st.markdown(md, unsafe_allow_html=True)
     except Exception as e:
-        st.error(f"Audio Error: {e}")
+        st.error(f"Failed to generate {label}: {e}")
 
-# -------------------------------
-# Streamlit UI
-# -------------------------------
-st.set_page_config(page_title="PDF Audio Reader", page_icon="🔊")
-st.title("📄 PDF to Speech Reader")
+# ----------------------------------
+# STREAMLIT UI
+# ----------------------------------
+st.set_page_config(page_title="PDF Audiobook", page_icon="🔊")
+st.title("📄🔊 PDF Full Audiobook Reader")
 
 uploaded_file = st.file_uploader("Upload a PDF file", type=["pdf"])
 
-if uploaded_file is not None:
-    # 1. Extract text
-    with st.spinner("Extracting text from PDF..."):
-        raw_text = extract_text_from_pdf(uploaded_file)
-    st.success("Text extracted!")
+if uploaded_file:
+    # Use session state to keep text loaded between clicks
+    if "clean_text" not in st.session_state:
+        with st.spinner("Extracting and cleaning text..."):
+            raw = extract_text_from_pdf(uploaded_file)
+            st.session_state.clean_text = normalize_text(raw)
 
-    clean_text = normalize_text(raw_text)
+    text = st.session_state.clean_text
 
-    st.subheader("Preview:")
-    st.write(clean_text[:1000] + "...")  # Show first 1000 chars as preview
+    if not text:
+        st.error("No text found in this PDF.")
+    else:
+        st.success(f"Loaded {len(text)} characters.")
 
-    # 2. Read full PDF button
-    if st.button("🔊 Read Full PDF"):
-        st.info("Generating audio...")
-        play_audio_full(clean_text)
-        st.success("Done!")
+        if st.button("🔊 Generate Full Audiobook"):
+            # We split into 3000-character chunks (approx 5 mins of audio each)
+            # This prevents gTTS timeouts and browser crashes.
+            chunk_size = 3000
+            chunks = [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
+            
+            st.info(f"Generating {len(chunks)} audio parts...")
+            
+            for idx, chunk in enumerate(chunks):
+                generate_audio_player(chunk, f"Part {idx + 1}")
+            
+            st.balloons()
